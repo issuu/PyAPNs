@@ -73,12 +73,12 @@ class APNs(object):
         return pack('>H', num)
 
     @staticmethod
-    def unpacked_ushort_big_endian(bytes):
+    def unpacked_ushort_big_endian(bytez):
         """
         Returns an unsigned short from a packed big-endian (network) byte
         array
         """
-        return unpack('>H', bytes)[0]
+        return unpack('>H', bytez)[0]
 
     @staticmethod
     def packed_uint_big_endian(num):
@@ -88,11 +88,11 @@ class APNs(object):
         return pack('>I', num)
 
     @staticmethod
-    def unpacked_uint_big_endian(bytes):
+    def unpacked_uint_big_endian(bytez):
         """
         Returns an unsigned int from a packed big-endian (network) byte array
         """
-        return unpack('>I', bytes)[0]
+        return unpack('>I', bytez)[0]
 
     @property
     def feedback_server(self):
@@ -123,6 +123,8 @@ class APNsConnection(object):
         super(APNsConnection, self).__init__()
         self.cert_file = cert_file
         self.key_file = key_file
+        self.server = None
+        self.port = None
         self._socket = None
         self._ssl = None
 
@@ -151,8 +153,8 @@ class APNsConnection(object):
         self._connection().settimeout(timeout)
         return self._connection().read(n)
 
-    def write(self, string):
-        return self._connection().write(string)
+    def write(self, s):
+        return self._connection().write(s)
 
 
 class PayloadAlert(object):
@@ -253,9 +255,9 @@ class FeedbackConnection(APNsConnection):
         self.port = 2196
 
     def _chunks(self):
-        BUF_SIZE = 4096
+        buffer_size = 4096
         while 1:
-            data = self.read(BUF_SIZE, timeout=0.5)
+            data = self.read(buffer_size, timeout=0.5)
             yield data
             if not data:
                 break

@@ -1,4 +1,4 @@
-from distutils.core import setup
+from distutils.core import setup  # pylint: disable=F0401,E0611
 
 setup(
     author = 'Simon Whitaker',

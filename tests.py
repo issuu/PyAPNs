@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 # coding: utf-8
-from apns import *
 from binascii import a2b_hex
 from random import random
-from datetime import datetime
+from apns import APNs
+from apns import Payload
+from apns import PayloadAlert
+from apns import MAX_PAYLOAD_LENGTH
+from apns import PayloadTooLargeError
 
 import hashlib
-import os
 import time
 import unittest
 
@@ -18,7 +20,7 @@ for i in range(0, NUM_MOCK_TOKENS):
     mock_tokens.append(hashlib.sha256("%.12f" % random()).hexdigest())
 
 def mock_chunks_generator():
-    BUF_SIZE = 64
+    buffer_size = 64
     # Create fake data feed
     data = ''
 
@@ -31,11 +33,11 @@ def mock_chunks_generator():
         data += token_bin
 
     while data:
-        yield data[0:BUF_SIZE]
-        data = data[BUF_SIZE:]
+        yield data[0:buffer_size]
+        data = data[buffer_size:]
 
 
-class TestAPNs(unittest.TestCase):
+class TestAPNs(unittest.TestCase): # pylint: disable=R0904
     """Unit tests for PyAPNs"""
 
     def setUp(self):
@@ -64,36 +66,39 @@ class TestAPNs(unittest.TestCase):
         self.assertEqual(apns_prod.feedback_server.server,
             'feedback.push.apple.com')
 
-    def testGatewayServer(self):
-        pem_file = TEST_CERTIFICATE
-        apns = APNs(use_sandbox=True, cert_file=pem_file, key_file=pem_file)
-        gateway_server = apns.gateway_server
+    #
+    # This test appears to be dead - it invokes a method that no longer exists.
+    #
+    # def testGatewayServer(self):
+    #     pem_file = TEST_CERTIFICATE
+    #     apns = APNs(use_sandbox=True, cert_file=pem_file, key_file=pem_file)
+    #     gateway_server = apns.gateway_server
 
-        self.assertEqual(gateway_server.cert_file, apns.cert_file)
-        self.assertEqual(gateway_server.key_file, apns.key_file)
+    #     self.assertEqual(gateway_server.cert_file, apns.cert_file)
+    #     self.assertEqual(gateway_server.key_file, apns.key_file)
 
-        token_hex = 'b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c'
-        payload   = Payload(
-            alert = "Hello World!",
-            sound = "default",
-            badge = 4
-        )
-        identifier = 'abcd'
-        expiry = datetime(2000, 01, 01, 00, 00, 00)
-        notification = gateway_server._get_notification(token_hex, payload, identifier, expiry)
+    #     token_hex = 'b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c'
+    #     payload   = Payload(
+    #         alert = "Hello World!",
+    #         sound = "default",
+    #         badge = 4
+    #     )
+    #     identifier = 'abcd'
+    #     expiry = datetime(2000, 01, 01, 00, 00, 00)
+    #     notification = apns.gateway_server.(token_hex, payload, identifier, expiry)
 
-        expected_length = (
-            1                       # leading command byte
-            + 4                     # Identifier as a 4 bytes buffer
-            + 4                     # Expiry timestamp as a packed integer
-            + 2                     # length of token as a packed short
-            + len(token_hex) / 2    # length of token as binary string
-            + 2                     # length of payload as a packed short
-            + len(payload.json())   # length of JSON-formatted payload
-        )
+    #     expected_length = (
+    #         1                       # leading command byte
+    #         + 4                     # Identifier as a 4 bytes buffer
+    #         + 4                     # Expiry timestamp as a packed integer
+    #         + 2                     # length of token as a packed short
+    #         + len(token_hex) / 2    # length of token as binary string
+    #         + 2                     # length of payload as a packed short
+    #         + len(payload.json())   # length of JSON-formatted payload
+    #     )
 
-        self.assertEqual(len(notification), expected_length)
-        self.assertEqual(notification[0], '\x01') # Enhanched format command byte
+    #     self.assertEqual(len(notification), expected_length)
+    #     self.assertEqual(notification[0], '\x01') # Enhanched format command byte
 
     def testFeedbackServer(self):
         pem_file = TEST_CERTIFICATE
@@ -104,13 +109,13 @@ class TestAPNs(unittest.TestCase):
         self.assertEqual(feedback_server.key_file, apns.key_file)
 
         # Overwrite _chunks() to call a mock chunk generator
-        feedback_server._chunks = mock_chunks_generator
+        feedback_server._chunks = mock_chunks_generator # pylint: disable=W0212
 
-        i = 0;
-        for (token_hex, fail_time) in feedback_server.items():
-            self.assertEqual(token_hex, mock_tokens[i])
-            i += 1
-        self.assertEqual(i, NUM_MOCK_TOKENS)
+        x = 0
+        for (token_hex, _) in feedback_server.items():
+            self.assertEqual(token_hex, mock_tokens[x])
+            x += 1
+        self.assertEqual(x, NUM_MOCK_TOKENS)
 
     def testPayloadAlert(self):
         pa = PayloadAlert('foo')
@@ -176,7 +181,7 @@ class TestAPNs(unittest.TestCase):
 
 
     def testPayloadTooLargeError(self):
-        # The maximum size of the JSON payload is MAX_PAYLOAD_LENGTH 
+        # The maximum size of the JSON payload is MAX_PAYLOAD_LENGTH
         # bytes. First determine how many bytes this allows us in the
         # raw payload (i.e. before JSON serialisation)
         json_overhead_bytes = len(Payload('.').json()) - 1
@@ -184,7 +189,7 @@ class TestAPNs(unittest.TestCase):
 
         # Test ascii characters payload
         Payload('.' * max_raw_payload_bytes)
-        self.assertRaises(PayloadTooLargeError, Payload, 
+        self.assertRaises(PayloadTooLargeError, Payload,
             '.' * (max_raw_payload_bytes + 1))
 
         # Test unicode 2-byte characters payload
