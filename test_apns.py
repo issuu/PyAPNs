@@ -5,7 +5,7 @@ from random import random
 from apns import APNs
 from apns import Payload
 from apns import PayloadAlert
-from apns import MAX_PAYLOAD_LENGTH
+from apns import DEFAULT_MAX_PAYLOAD_LENGTH
 from apns import PayloadTooLargeError
 
 import hashlib
@@ -181,11 +181,11 @@ class TestAPNs(unittest.TestCase): # pylint: disable=R0904
 
 
     def testPayloadTooLargeError(self):
-        # The maximum size of the JSON payload is MAX_PAYLOAD_LENGTH
+        # The maximum size of the JSON payload is DEFAULT_MAX_PAYLOAD_LENGTH
         # bytes. First determine how many bytes this allows us in the
         # raw payload (i.e. before JSON serialisation)
         json_overhead_bytes = len(Payload('.').json()) - 1
-        max_raw_payload_bytes = MAX_PAYLOAD_LENGTH - json_overhead_bytes
+        max_raw_payload_bytes = DEFAULT_MAX_PAYLOAD_LENGTH - json_overhead_bytes
 
         # Test ascii characters payload
         Payload('.' * max_raw_payload_bytes)
@@ -196,6 +196,121 @@ class TestAPNs(unittest.TestCase): # pylint: disable=R0904
         Payload(u'\u0100' * int(max_raw_payload_bytes / 2))
         self.assertRaises(PayloadTooLargeError, Payload,
             u'\u0100' * (int(max_raw_payload_bytes / 2) + 1))
+
+class TestTruncateJSON(unittest.TestCase):
+
+    def assertTruncateListWith(self, truncate_fun, context, content, expected_outputs):
+        context_length = len(context[0] + context[1])
+
+        self.assertRaises(PayloadTooLargeError, truncate_fun,
+            content, context_length - 1)
+
+        for i in range(2, len(expected_outputs)): # TODO: from 0
+            expected_output = context[0] + expected_outputs[i] + context[1]
+            length = context_length + i
+            self.assertLessEqual(len(expected_output), length)
+
+            truncated = truncate_fun(content, length)
+            self.assertEquals(truncated, expected_output)
+
+    def assertTruncateList(self, content, expected_outputs):
+        context=('(((', ')))')
+        def truncate_fun(content, length):
+            return context[0] + \
+                   Payload._truncate_json(context, content, length) + \
+                   context[1]
+        self.assertTruncateListWith(truncate_fun,
+                                    context,
+                                    content,
+                                    expected_outputs)
+
+        def truncate_fun(content, length):
+            return Payload(
+                alert=content, # TODO: key becomes missing when content=""
+                custom={"hello": "world"},
+                max_payload_length=length,
+                truncate=True
+            ).json()
+        context = tuple(truncate_fun("!", 1000).split("!"))
+        self.assertEquals(len(context), 2)
+        #import pdb
+        #pdb.set_trace()
+        self.assertTruncateListWith(truncate_fun,
+                                    context,
+                                    content,
+                                    expected_outputs)
+
+
+    def test_no_special_chars(self):
+        self.assertEquals(
+            Payload._truncate_json(("Hello ", "world"), "", 100),
+            "")
+        self.assertEquals(
+            Payload._truncate_json(("Hello ", "world"), "big ", 100),
+            "big ")
+
+        self.assertTruncateList("big ", [
+            "",
+            "",
+            "..",
+            "b..",
+            "big ",
+            "big ",
+        ])
+
+    def test_utf8(self):
+        self.assertTruncateList('fæ', [
+            '',
+            '',
+            '..',
+            'fæ',
+            'fæ',
+        ])
+
+        self.assertTruncateList('øgle', [
+            '',
+            '',
+            '..',
+            '..',
+            'ø..',
+            'øgle',
+        ])
+
+        self.assertTruncateList('nøgler', [
+            '',
+            '',
+            '..',
+            'n..',
+            'n..',
+            'nø..',
+            'nøg..',
+        ])
+
+        umbrella = u'\U0001F302'.encode('utf-8') # emoji, four bytes
+        self.assertEquals(len(umbrella), 4)
+
+        self.assertTruncateList('A'+umbrella+'B', [
+            '',
+            '',
+            '..',
+            'A..',
+            'A..',
+            'A..',
+            'A'+umbrella+'B',
+        ])
+
+    def test_backslash(self):
+        self.assertTruncateList('A\\n6789', [
+            '',
+            '',
+            '..',
+            'A..',
+            'A..',
+            'A\\n..',
+            'A\\n6..',
+            'A\\n6789',
+        ])
+
 
 if __name__ == '__main__':
     unittest.main()

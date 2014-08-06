@@ -30,6 +30,7 @@ from socket import socket, AF_INET, SOCK_STREAM
 from struct import pack, unpack
 import string
 import logging
+import uuid
 
 
 logger = logging.getLogger('apns')
@@ -47,7 +48,7 @@ except ImportError:
     import simplejson as json
 
 
-MAX_PAYLOAD_LENGTH = 256
+DEFAULT_MAX_PAYLOAD_LENGTH = 256
 
 
 class APNs(object):
@@ -188,12 +189,19 @@ class PayloadTooLargeError(Exception):
 
 class Payload(object):
     """A class representing an APNs message payload"""
-    def __init__(self, alert=None, badge=None, sound=None, custom=None):
+    def __init__(self, alert=None, badge=None, sound=None, custom=None,
+                 max_payload_length=DEFAULT_MAX_PAYLOAD_LENGTH, truncate=False):
         self.alert = alert
         self.badge = badge
         self.sound = sound
         self.custom = custom
-        self._check_size()
+        try:
+            self._check_size(max_payload_length)
+        except PayloadTooLargeError as e:
+            if truncate:
+                self._truncate_alert(max_payload_length)
+            else:
+                raise e
 
     def dict(self):
         """Returns the payload as a regular Python dictionary"""
@@ -226,14 +234,38 @@ class Payload(object):
             ensure_ascii=False
         ).encode('utf-8')
 
-    def _check_size(self):
+    def _truncate_alert(self, max_payload_length):
+        """The json message is too large. Truncate it."""
+        placeholder = str(uuid.uuid4())
+
+        # Depending on the type of self.alert (PayloadAlert or string), we
+        # access its truncatable contents as either self.alert.body or
+        # self.alert.
+        if isinstance(self.alert, PayloadAlert):
+            body = self.alert.body
+            self.alert.body = placeholder
+        else:
+            body = self.alert
+            self.alert = placeholder
+
+        # TODO: kill characters that would result in \u
+        context = tuple(self.json().split(placeholder))
+        assert len(context) == 2
+        short_body = Payload._truncate_json(context, body, max_payload_length)
+
+        if isinstance(self.alert, PayloadAlert):
+            self.alert.body = short_body
+        else:
+            self.alert = short_body
+
+    def _check_size(self, max_payload_length):
         payload = self.json()
         length = len(payload)
-        if length > MAX_PAYLOAD_LENGTH:
+        if length > max_payload_length:
             raise PayloadTooLargeError(
                 'The serialized payload is too long:'
                 ' {length} vs. the maximum of {max}'
-                .format(length=length, max=MAX_PAYLOAD_LENGTH),
+                .format(length=length, max=max_payload_length),
                 payload
             )
 
@@ -241,6 +273,45 @@ class Payload(object):
         attrs = ("alert", "badge", "sound", "custom")
         args = ", ".join(["%s=%r" % (n, getattr(self, n)) for n in attrs])
         return "%s(%s)" % (self.__class__.__name__, args)
+
+    @staticmethod
+    def _truncate_json((left, right), content, max_payload_length, dotdot = '..'):
+        """
+        Truncate a JSON UTF-8 string literal without the quotes and concatenates
+        with with 'left' and 'right' such that the total length is at most
+        'max_payload_length'.
+
+        Does not support JSON \uXXXX escape sequences in 'content', which means
+        there must not be ASCII control characters in the original string.
+        """
+        assert type(content) == str and \
+               type(left) == str and \
+               type(right) == str
+
+        lr_len = len(left) + len(right)
+        if lr_len > max_payload_length:
+            raise PayloadTooLargeError(
+                'The serialized payload is too long, even if truncated:'
+                ' {length} vs. the maximum of {max}'
+                .format(length=lr_len, max=max_payload_length),
+                left + right
+            )
+        elif lr_len + len(content) <= max_payload_length:
+            return content
+        elif lr_len + len(dotdot) > max_payload_length:
+            return ""
+
+        avail_len = max_payload_length - lr_len - len(dotdot)
+
+        # Idea borrowed from http://stackoverflow.com/questions/1809531
+        content = content[:avail_len] \
+            .decode('utf-8', 'ignore') \
+            .encode('utf-8')
+        if len(content) > 0 and content[-1] == '\\':
+            content = content[:-1]
+
+        return content + dotdot
+
 
 
 class FeedbackConnection(APNsConnection):
