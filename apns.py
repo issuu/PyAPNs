@@ -309,7 +309,7 @@ class Payload(object):
         not be ASCII control characters in 'content'.
         """
         assert type(content) == str
-        assert max_length > 0
+        assert max_length >= 0
 
         escaped = Payload._to_json_utf8(content)[1:-1]
 
