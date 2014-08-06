@@ -228,11 +228,7 @@ class Payload(object):
         return payload
 
     def json(self):
-        return json.dumps(
-            self.dict(),
-            separators=(',', ':'),
-            ensure_ascii=False
-        ).encode('utf-8')
+        return Payload._to_json_utf8(self.dict())
 
     def _truncate_alert(self, max_payload_length):
         """The json message is too large. Truncate it."""
@@ -251,7 +247,20 @@ class Payload(object):
         # TODO: kill characters that would result in \u
         context = tuple(self.json().split(placeholder))
         assert len(context) == 2
-        short_body = Payload._truncate_json(context, body, max_payload_length)
+        avail_length = max_payload_length - len(context[0]) - len(context[1])
+        if avail_length < 1:
+            raise PayloadTooLargeError(
+                'The serialized payload is too long'
+                ' even if we truncate the alert to one character:'
+                ' {length} vs. the maximum of {max}'
+                .format(length=len(context[0]) + len(context[1]) + 1,
+                        max=max_payload_length),
+                context[0] + context[1]
+            )
+        short_body = Payload._truncate_json(body, avail_length)
+        if not short_body:
+            raise PayloadTooLargeError(
+                "Truncating body gave it length 0. Won't send empty alert.")
 
         if isinstance(self.alert, PayloadAlert):
             self.alert.body = short_body
@@ -275,42 +284,46 @@ class Payload(object):
         return "%s(%s)" % (self.__class__.__name__, args)
 
     @staticmethod
-    def _truncate_json((left, right), content, max_payload_length, dotdot = '..'):
+    def _to_json_utf8(value):
         """
-        Truncate a JSON UTF-8 string literal without the quotes and concatenates
-        with with 'left' and 'right' such that the total length is at most
-        'max_payload_length'.
-
-        Does not support JSON \uXXXX escape sequences in 'content', which means
-        there must not be ASCII control characters in the original string.
+        Produces a compact UTF-8 JSON string of the given Python value.
         """
-        assert type(content) == str and \
-               type(left) == str and \
-               type(right) == str
+        text = json.dumps(
+            value,
+            separators=(',', ':'),
+            ensure_ascii=False
+        )
+        if isinstance(text, unicode):
+            return text.encode('utf-8')
+        else:
+            assert isinstance(text, str)
+            return text
 
-        lr_len = len(left) + len(right)
-        if lr_len > max_payload_length:
-            raise PayloadTooLargeError(
-                'The serialized payload is too long, even if truncated:'
-                ' {length} vs. the maximum of {max}'
-                .format(length=lr_len, max=max_payload_length),
-                left + right
-            )
-        elif lr_len + len(content) <= max_payload_length:
+    @staticmethod
+    def _truncate_json(content, max_length):
+        """
+        Truncate a UTF-8 string so its JSON representation is at most
+        'max_length' bytes.
+
+        Does not support JSON \uXXXX escape sequences, which means there must
+        not be ASCII control characters in 'content'.
+        """
+        assert type(content) == str
+        assert max_length > 0
+
+        escaped = Payload._to_json_utf8(content)[1:-1]
+
+        if len(escaped) <= max_length:
             return content
-        elif lr_len + len(dotdot) > max_payload_length:
-            return ""
-
-        avail_len = max_payload_length - lr_len - len(dotdot)
 
         # Idea borrowed from http://stackoverflow.com/questions/1809531
-        content = content[:avail_len] \
+        escaped = escaped[:max_length] \
             .decode('utf-8', 'ignore') \
             .encode('utf-8')
-        if len(content) > 0 and content[-1] == '\\':
-            content = content[:-1]
+        if len(escaped) > 0 and escaped[-1] == '\\':
+            escaped = escaped[:-1]
 
-        return content + dotdot
+        return json.loads('"' + escaped + '"').encode('utf-8')
 
 
 

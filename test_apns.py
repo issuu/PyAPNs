@@ -202,39 +202,51 @@ class TestTruncateJSON(unittest.TestCase):
     def assertTruncateListWith(self, truncate_fun, context, content, expected_outputs):
         context_length = len(context[0] + context[1])
 
-        self.assertRaises(PayloadTooLargeError, truncate_fun,
-            content, context_length - 1)
+        for i in range(len(expected_outputs)):
+            length = i + 1 # TODO: start from 0
+            expected_output = expected_outputs[i]
+            if isinstance(expected_output, type):
+                try:
+                    truncated = truncate_fun(content, length)
+                except Exception as e:
+                    self.assertIsInstance(e, expected_output)
+                else:
+                    self.fail("Expected exception {} but got string {}".format(
+                        expected_output, truncated))
+            else:
+                self.assertLessEqual(len(expected_output), length)
+                truncated = truncate_fun(content, length)
+                self.assertEquals(truncated,
+                                  context[0] + expected_output + context[1])
 
-        for i in range(2, len(expected_outputs)): # TODO: from 0
-            expected_output = context[0] + expected_outputs[i] + context[1]
-            length = context_length + i
-            self.assertLessEqual(len(expected_output), length)
-
-            truncated = truncate_fun(content, length)
-            self.assertEquals(truncated, expected_output)
 
     def assertTruncateList(self, content, expected_outputs):
         context=('(((', ')))')
         def truncate_fun(content, length):
-            return context[0] + \
-                   Payload._truncate_json(context, content, length) + \
-                   context[1]
+            truncated = Payload._truncate_json(content, length)
+            escaped = Payload._to_json_utf8(truncated)[1:-1]
+            return context[0] + escaped + context[1]
+        workaround = [
+            (o if not isinstance(o, type) else "")
+            for o in expected_outputs
+        ]
         self.assertTruncateListWith(truncate_fun,
                                     context,
                                     content,
-                                    expected_outputs)
+                                    workaround)
 
-        def truncate_fun(content, length):
+        def truncate_fun_full_length(content, length):
             return Payload(
-                alert=content, # TODO: key becomes missing when content=""
+                alert=content,
                 custom={"hello": "world"},
                 max_payload_length=length,
                 truncate=True
             ).json()
-        context = tuple(truncate_fun("!", 1000).split("!"))
+        context = tuple(truncate_fun_full_length("!", 1000).split("!"))
         self.assertEquals(len(context), 2)
-        #import pdb
-        #pdb.set_trace()
+        def truncate_fun(content, length):
+            return truncate_fun_full_length(content,
+                                            length + len(context[0]) + len(context[1]))
         self.assertTruncateListWith(truncate_fun,
                                     context,
                                     content,
@@ -242,74 +254,61 @@ class TestTruncateJSON(unittest.TestCase):
 
 
     def test_no_special_chars(self):
-        self.assertEquals(
-            Payload._truncate_json(("Hello ", "world"), "", 100),
-            "")
-        self.assertEquals(
-            Payload._truncate_json(("Hello ", "world"), "big ", 100),
-            "big ")
+        self.assertEquals(Payload._truncate_json("", 100), "")
+        self.assertEquals(Payload._truncate_json("big ", 100), "big ")
 
         self.assertTruncateList("big ", [
-            "",
-            "",
-            "..",
-            "b..",
+            "b",
+            "bi",
+            "big",
+            "big ",
             "big ",
             "big ",
         ])
 
     def test_utf8(self):
         self.assertTruncateList('fæ', [
-            '',
-            '',
-            '..',
+            'f',
+            'f',
             'fæ',
             'fæ',
         ])
 
         self.assertTruncateList('øgle', [
-            '',
-            '',
-            '..',
-            '..',
-            'ø..',
-            'øgle',
+            PayloadTooLargeError,
+            'ø',
+            'øg',
+            'øgl',
         ])
 
         self.assertTruncateList('nøgler', [
-            '',
-            '',
-            '..',
-            'n..',
-            'n..',
-            'nø..',
-            'nøg..',
+            'n',
+            'n',
+            'nø',
+            'nøg',
         ])
 
         umbrella = u'\U0001F302'.encode('utf-8') # emoji, four bytes
         self.assertEquals(len(umbrella), 4)
 
         self.assertTruncateList('A'+umbrella+'B', [
-            '',
-            '',
-            '..',
-            'A..',
-            'A..',
-            'A..',
+            'A',
+            'A',
+            'A',
+            'A',
+            'A'+umbrella,
             'A'+umbrella+'B',
         ])
 
     def test_backslash(self):
-        self.assertTruncateList('A\\n6789', [
-            '',
-            '',
-            '..',
-            'A..',
-            'A..',
-            'A\\n..',
-            'A\\n6..',
-            'A\\n6789',
+        self.assertTruncateList('A\n6789', [
+            'A',
+            'A',
+            'A\\n',
+            'A\\n6',
         ])
+
+        # TODO: test with unicode literals as well
 
 
 if __name__ == '__main__':
