@@ -308,7 +308,6 @@ class Payload(object):
         Does not support JSON \uXXXX escape sequences, which means there must
         not be ASCII control characters in 'content'.
         """
-        assert type(content) == str
         assert max_length >= 0
 
         escaped = Payload._to_json_utf8(content)[1:-1]

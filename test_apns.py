@@ -291,27 +291,29 @@ class TestTruncateJSON(unittest.TestCase):
             'nøg',
         ])
 
-        umbrella = u'\U0001F302'.encode('utf-8') # emoji, four bytes
-        self.assertEquals(len(umbrella), 4)
+        umbrella32 = u'\U0001F302' # emoji
+        umbrella8 = umbrella32.encode('utf-8') # four bytes
+        self.assertEquals(len(umbrella8), 4)
 
-        self.assertTruncateList(umbrella+'B', [
-            '',
-            '',
-            '',
-            '',
-            umbrella,
-            umbrella+'B',
-        ])
+        for umbrella in [umbrella8, umbrella32]:
+            self.assertTruncateList(umbrella+'B', [
+                '',
+                '',
+                '',
+                '',
+                umbrella8,
+                umbrella8+'B',
+            ])
 
-        self.assertTruncateList('A'+umbrella+'B', [
-            '',
-            'A',
-            'A',
-            'A',
-            'A',
-            'A'+umbrella,
-            'A'+umbrella+'B',
-        ])
+            self.assertTruncateList('A'+umbrella+'B', [
+                '',
+                'A',
+                'A',
+                'A',
+                'A',
+                'A'+umbrella8,
+                'A'+umbrella8+'B',
+            ])
 
     def test_backslash(self):
         self.assertTruncateList('A\n6789', [
@@ -321,8 +323,6 @@ class TestTruncateJSON(unittest.TestCase):
             'A\\n',
             'A\\n6',
         ])
-
-        # TODO: test with unicode literals as well
 
 
 if __name__ == '__main__':
