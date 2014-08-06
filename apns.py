@@ -30,6 +30,7 @@ from socket import socket, AF_INET, SOCK_STREAM
 from struct import pack, unpack
 import string
 import logging
+import uuid
 
 
 logger = logging.getLogger('apns')
@@ -47,7 +48,7 @@ except ImportError:
     import simplejson as json
 
 
-MAX_PAYLOAD_LENGTH = 256
+DEFAULT_MAX_PAYLOAD_LENGTH = 256
 
 
 class APNs(object):
@@ -188,12 +189,19 @@ class PayloadTooLargeError(Exception):
 
 class Payload(object):
     """A class representing an APNs message payload"""
-    def __init__(self, alert=None, badge=None, sound=None, custom=None):
+    def __init__(self, alert=None, badge=None, sound=None, custom=None,
+                 max_payload_length=DEFAULT_MAX_PAYLOAD_LENGTH, truncate=False):
         self.alert = alert
         self.badge = badge
         self.sound = sound
         self.custom = custom
-        self._check_size()
+        try:
+            self._check_size(max_payload_length)
+        except PayloadTooLargeError as e:
+            if truncate:
+                self._truncate_alert(max_payload_length)
+            else:
+                raise e
 
     def dict(self):
         """Returns the payload as a regular Python dictionary"""
@@ -220,20 +228,52 @@ class Payload(object):
         return payload
 
     def json(self):
-        return json.dumps(
-            self.dict(),
-            separators=(',', ':'),
-            ensure_ascii=False
-        ).encode('utf-8')
+        return Payload._to_json_utf8(self.dict())
 
-    def _check_size(self):
+    def _truncate_alert(self, max_payload_length):
+        """The json message is too large. Truncate it."""
+        placeholder = str(uuid.uuid4())
+
+        # Depending on the type of self.alert (PayloadAlert or string), we
+        # access its truncatable contents as either self.alert.body or
+        # self.alert.
+        if isinstance(self.alert, PayloadAlert):
+            body = self.alert.body
+            self.alert.body = placeholder
+        else:
+            body = self.alert
+            self.alert = placeholder
+
+        context = tuple(self.json().split(placeholder))
+        assert len(context) == 2
+        avail_length = max_payload_length - len(context[0]) - len(context[1])
+        if avail_length < 1:
+            raise PayloadTooLargeError(
+                'The serialized payload is too long'
+                ' even if we truncate the alert to one character:'
+                ' {length} vs. the maximum of {max}'
+                .format(length=len(context[0]) + len(context[1]) + 1,
+                        max=max_payload_length),
+                context[0] + context[1]
+            )
+        short_body = Payload._truncate_json(body, avail_length)
+        if not short_body:
+            raise PayloadTooLargeError(
+                "Truncating body gave it length 0. Won't send empty alert.")
+
+        if isinstance(self.alert, PayloadAlert):
+            self.alert.body = short_body
+        else:
+            self.alert = short_body
+
+    def _check_size(self, max_payload_length):
         payload = self.json()
         length = len(payload)
-        if length > MAX_PAYLOAD_LENGTH:
+        if length > max_payload_length:
             raise PayloadTooLargeError(
                 'The serialized payload is too long:'
                 ' {length} vs. the maximum of {max}'
-                .format(length=length, max=MAX_PAYLOAD_LENGTH),
+                .format(length=length, max=max_payload_length),
                 payload
             )
 
@@ -241,6 +281,49 @@ class Payload(object):
         attrs = ("alert", "badge", "sound", "custom")
         args = ", ".join(["%s=%r" % (n, getattr(self, n)) for n in attrs])
         return "%s(%s)" % (self.__class__.__name__, args)
+
+    @staticmethod
+    def _to_json_utf8(value):
+        """
+        Produces a compact UTF-8 JSON string of the given Python value.
+        """
+        text = json.dumps(
+            value,
+            separators=(',', ':'),
+            ensure_ascii=False
+        )
+        if isinstance(text, unicode):
+            return text.encode('utf-8')
+        else:
+            assert isinstance(text, str)
+            return text
+
+    @staticmethod
+    def _truncate_json(content, max_length):
+        """
+        Truncate a UTF-8 string so its JSON representation is at most
+        'max_length' bytes.
+        """
+        assert max_length >= 0
+
+        escaped = Payload._to_json_utf8(content)[1:-1]
+
+        if len(escaped) <= max_length:
+            return content
+
+        # Idea borrowed from http://stackoverflow.com/questions/1809531
+        escaped = escaped[:max_length] \
+            .decode('utf-8', 'ignore') \
+            .encode('utf-8')
+
+        # Cut off the last character until it's valid JSON. This should take
+        # care of escape sequences.
+        while True:
+            try:
+                return json.loads('"' + escaped + '"').encode('utf-8')
+            except ValueError:
+                escaped = escaped[:-1]
+
 
 
 class FeedbackConnection(APNsConnection):
