@@ -324,6 +324,22 @@ class TestTruncateJSON(unittest.TestCase):
             'A\\n6',
         ])
 
+        self.assertTruncateList('A"6789', [
+            '',
+            'A',
+            'A',
+            'A\\"',
+            'A\\"6',
+        ])
+
+        self.assertTruncateList('\\u1234', [
+            '',
+            '',
+            '\\\\',
+            '\\\\u',
+            '\\\\u1',
+            '\\\\u12',
+        ])
 
 if __name__ == '__main__':
     unittest.main()

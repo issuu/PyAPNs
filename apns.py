@@ -244,7 +244,7 @@ class Payload(object):
             body = self.alert
             self.alert = placeholder
 
-        # TODO: kill characters that would result in \u
+        # TODO: kill characters that would result in \u (ASCII control chars)
         context = tuple(self.json().split(placeholder))
         assert len(context) == 2
         avail_length = max_payload_length - len(context[0]) - len(context[1])
@@ -319,7 +319,7 @@ class Payload(object):
         escaped = escaped[:max_length] \
             .decode('utf-8', 'ignore') \
             .encode('utf-8')
-        if len(escaped) > 0 and escaped[-1] == '\\':
+        if len(escaped) > 0 and escaped[-1] == '\\': # TODO: insufficient test
             escaped = escaped[:-1]
 
         return json.loads('"' + escaped + '"').encode('utf-8')
