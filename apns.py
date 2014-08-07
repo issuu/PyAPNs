@@ -319,10 +319,14 @@ class Payload(object):
         escaped = escaped[:max_length] \
             .decode('utf-8', 'ignore') \
             .encode('utf-8')
-        if len(escaped) > 0 and escaped[-1] == '\\': # TODO: insufficient test
-            escaped = escaped[:-1]
 
-        return json.loads('"' + escaped + '"').encode('utf-8')
+        # Cut off the last character until it's valid JSON. This should take
+        # care of escape sequences.
+        while True:
+            try:
+                return json.loads('"' + escaped + '"').encode('utf-8')
+            except ValueError:
+                escaped = escaped[:-1]
 
 
 
