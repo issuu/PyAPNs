@@ -332,6 +332,16 @@ class TestTruncateJSON(unittest.TestCase):
             'A\\"6',
         ])
 
+        self.assertTruncateList('\x19', [
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '\\u0019',
+        ])
+
         self.assertTruncateList('\\u1234', [
             '',
             '',

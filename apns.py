@@ -244,7 +244,6 @@ class Payload(object):
             body = self.alert
             self.alert = placeholder
 
-        # TODO: kill characters that would result in \u (ASCII control chars)
         context = tuple(self.json().split(placeholder))
         assert len(context) == 2
         avail_length = max_payload_length - len(context[0]) - len(context[1])
@@ -304,9 +303,6 @@ class Payload(object):
         """
         Truncate a UTF-8 string so its JSON representation is at most
         'max_length' bytes.
-
-        Does not support JSON \uXXXX escape sequences, which means there must
-        not be ASCII control characters in 'content'.
         """
         assert max_length >= 0
 
