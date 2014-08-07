@@ -220,6 +220,16 @@ class TestTruncateJSON(unittest.TestCase):
 
 
     def assertTruncateList(self, content, expected_outputs):
+        """
+        Test three different ways to truncate a string: directly call
+        _truncate_json, create a Payload object with a string alert, and create
+        a Payload object with a PayloadAlert alert.
+
+        For each of these ways to truncate, we go through expected_outputs,
+        which is a list of expected truncated strings, starting from length 0.
+        The format of each expected output is UTF-8 JSON-string without the
+        quotes. The 'content' input should be a Python str or unicode object.
+        """
         context=('(((', ')))')
         def truncate_fun(content, length):
             truncated = Payload._truncate_json(content, length)
