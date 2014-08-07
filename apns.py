@@ -30,7 +30,6 @@ from socket import socket, AF_INET, SOCK_STREAM
 from struct import pack, unpack
 import string
 import logging
-import uuid
 
 
 logger = logging.getLogger('apns')
@@ -236,29 +235,27 @@ class Payload(object):
 
     def _truncate_alert(self, max_payload_length):
         """The json message is too large. Truncate it."""
-        placeholder = str(uuid.uuid4())
 
         # Depending on the type of self.alert (PayloadAlert or string), we
         # access its truncatable contents as either self.alert.body or
         # self.alert.
         if isinstance(self.alert, PayloadAlert):
             body = self.alert.body
-            self.alert.body = placeholder
+            self.alert.body = '!'
         else:
             body = self.alert
-            self.alert = placeholder
+            self.alert = '!'
 
-        context = tuple(self.json().split(placeholder))
-        assert len(context) == 2
-        avail_length = max_payload_length - len(context[0]) - len(context[1])
+        json_with_1char = self.json()
+        avail_length = max_payload_length - (len(json_with_1char) - 1)
         if avail_length < 1:
             raise PayloadTooLargeError(
                 'The serialized payload is too long'
                 ' even if we truncate the alert to one character:'
                 ' {length} vs. the maximum of {max}'
-                .format(length=len(context[0]) + len(context[1]) + 1,
+                .format(length=len(json_with_1char),
                         max=max_payload_length),
-                context[0] + context[1]
+                json_with_1char
             )
         short_body = Payload._truncate_json(body, avail_length)
         if not short_body:
