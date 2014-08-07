@@ -230,6 +230,11 @@ class TestTruncateJSON(unittest.TestCase):
                                     content,
                                     expected_outputs)
 
+        expected_outputs = [
+            (s if s else PayloadTooLargeError)
+            for s in expected_outputs
+        ]
+
         def truncate_fun_full_length(content, length):
             return Payload(
                 alert=content,
@@ -242,10 +247,23 @@ class TestTruncateJSON(unittest.TestCase):
         def truncate_fun(content, length):
             return truncate_fun_full_length(content,
                                             length + len(context[0]) + len(context[1]))
-        expected_outputs = [
-            (s if s else PayloadTooLargeError)
-            for s in expected_outputs
-        ]
+        self.assertTruncateListWith(truncate_fun,
+                                    context,
+                                    content,
+                                    expected_outputs)
+
+        def truncate_fun_full_length(content, length):
+            return Payload(
+                alert=PayloadAlert(body=content, loc_key="hello", loc_args="world"),
+                custom={"hello": "world"},
+                max_payload_length=length,
+                truncate=True
+            ).json()
+        context = tuple(truncate_fun_full_length("!", 1000).split("!"))
+        self.assertEquals(len(context), 2)
+        def truncate_fun(content, length):
+            return truncate_fun_full_length(content,
+                                            length + len(context[0]) + len(context[1]))
         self.assertTruncateListWith(truncate_fun,
                                     context,
                                     content,
