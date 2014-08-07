@@ -244,6 +244,8 @@ class Payload(object):
             self.alert.body = '!'
         else:
             body = self.alert
+            # We replace the body with a 1-char string instead of the empty
+            # string since the empty string is a special case in dict()
             self.alert = '!'
 
         json_with_1char = self.json()
