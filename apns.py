@@ -223,7 +223,7 @@ class Payload(object):
         }
 
         if self.category is not None:
-            payload['category'] = self.category
+            payload['aps']['category'] = self.category
 
         if self.custom:
             payload.update(self.custom)
