@@ -133,13 +133,13 @@ class APNsConnection(object):
 
     def _connect(self):
         # Establish an SSL connection
-        logger.info("Connecting")
+        logger.debug("Connecting")
         self._socket = socket(AF_INET, SOCK_STREAM)
         self._socket.connect((self.server, self.port))
         self._ssl = wrap_socket(self._socket, self.key_file, self.cert_file)
 
     def _disconnect(self):
-        logger.info("Disconnecting")
+        logger.debug("Disconnecting")
         if self._socket:
             self._socket.close()
             self._ssl = None  # Make sure we reconnect on next try
@@ -488,11 +488,14 @@ class GatewayConnection(APNsConnection):
                 logger.info("Socket EOF")
                 status = 999
                 identifier = None
+                # we assume that previos in flight notifications are sent
+                # thus we only keep the "just sent" notification in flight
+                self.in_flight_notifications = self.in_flight_notifications[:1]
             else:
-                logger.info("Got error_response")
                 # command = error_response[0]
                 status = ord(error_response[1])
                 identifier, = unpack('>I', error_response[2:6])
+                logger.error("Got error_response: {}".format(status))
 
             if status > 0:
                 self._disconnect()  # Make sure we're ready for next send.
@@ -556,7 +559,7 @@ class GatewayConnection(APNsConnection):
             # SSL throws SSLError instead of timeout,
             #  see http://bugs.python.org/issue10272
             # Timeouts are OK - don't reconnect
-            logger.info("Threw exception: %s", ex)
+            logger.debug("Threw exception: %s", ex)
 
         return resent_notifications
 
